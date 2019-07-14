@@ -108,61 +108,42 @@
 
 
         class Buff{
-            // buff名称
-            name = ''
-            // buff的数值
-            value = ''
-            // buff持续次数
-            count = 0
-            // buff作用方(rival/self)
-            to = 'rival'
-            // buff触发的时机(start/end)
-            runTime = 'start'
+            
 
             constructor(options){
+                // buff名称
+                this.name = ''
+                // buff的数值
+                this.value = ''
+                // buff持续次数
+                this.count = 0
+                // buff作用方(rival/self)
+                this.to = 'rival'
+                // buff触发的时机(start/end)
+                this.runTime = 'start'
+
                 Object.assign(this,options)
             }
         }
 
         class Log{
-            role = null
-            messageList = []
 
             constructor(role){
+                this.role = null
+                this.messageList = []
+
                 this.role = role
             }
         }
 
         class Role{
-            name = ''
-            // 生命值
-            life = 100
-            // 速度 , 梗快的速度梗先出手
-            speed = 0
-            // 攻击力
-            attack = 0
-            // 防御力
-            armor = 0
-            // 初始化被动技能
-            roleInit = null
+            
             // 被动技能
             // passive = null
             passive(){
                 this.attackInfo.physics += this.attack
                 // this.attackInfo.magic = 5
             }
-            // 必杀技能
-            cubikill = null
-            // 必杀几率
-            cubikillProbability = 0
-            // 必杀次数
-            cubikillCount = 0
-
-            // 是否被选中参与战斗
-            isCheck = false
-            // 当前战斗中失败的次数
-            failureCount = 0
-            
 
             // 出击时
             onAttack(){
@@ -250,6 +231,30 @@
             }
 
             constructor(name , speed, attack, armor, options){
+
+
+                this.name = ''
+                // 生命值
+                this.life = 100
+                // 速度 , 梗快的速度梗先出手
+                this.speed = 0
+                // 攻击力
+                this.attack = 0
+                // 防御力
+                this.armor = 0
+                // 初始化被动技能
+                this.roleInit = null
+                // 必杀技能
+                this.cubikill = null
+                // 必杀几率
+                this.cubikillProbability = 0
+                // 必杀次数
+                this.cubikillCount = 0
+
+                // 当前战斗中失败的次数
+                this.failureCount = 0
+                
+
                 Object.assign(this,{name , speed, attack, armor})
                 Object.assign(this,options)
             }
@@ -414,7 +419,6 @@
                         this.roleB = role
                     }
 
-                    // role.isCheck = true
                 },
                 updateMessage(msg,msg2){
                     if(!this.once){
