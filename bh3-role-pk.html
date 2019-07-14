@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>崩坏3 对战模拟器</title>
+
+    <style>
+        *{margin:0;  padding:0;  box-sizing:border-box;  }
+        #app{padding:10px;  }
+
+        .roles{display:flex;  margin:-5px;  overflow:auto;  }
+        .roles-item{border:1px solid #ccc;  padding:10px;  margin:5px;  flex-shrink:0;  }
+        .roles-item.check{border-color:#f00;  }
+
+        .button{width:100px;  height:50px;  margin-top:10px;  border:1px solid #ccc;  }
+
+        .fight-log{padding:10px;  margin:10px 0;  border:1px solid #ccc;  text-align:center;  }
+        .fight-log.roleA{margin-right:15%;  text-align:left;  }
+        .fight-log.roleB{margin-left:15%;  text-align:right;  }
+        .fight-log-message{font-size:12px;  }
+    </style>
+</head>
+<body>
+
+    <div id="app">
+
+        <h1>请选择两个角色</h1>
+        <div class="roles">
+            <div :class="['roles-item', {check : role==roleA || role==roleB} ]" v-for='role in roles' @click='checkRole(role)'>
+                <h2>{{role.name}}</h2>
+                <div>生命值 : {{role.life}}</div>
+                <div>速度 : {{role.speed}}</div>
+                <div>攻击力 : {{role.attack}}</div>
+                <div>防御力 : {{role.armor}}</div>
+            </div>
+        </div>
+
+        <button class="button" v-if='roleA && roleB' @click='startSelect()'>重新选择</button>
+        <button class="button" v-if='roleA && roleB' @click='gameStart()'>游戏开始</button>
+        <button class="button" v-if='roleA && roleB' @click='gameStart(10000)'>游戏开始1万次</button>
+
+        <div class="fight-logs" v-if='once'>
+            <div v-for='logItem in logs' :class="['fight-log' , {roleA : logItem.role==roleA} , {roleB : logItem.role==roleB}  ]">
+                <h4 v-if='logItem.role'>{{logItem.role.name}}出招 : </h4>
+                <h4 v-else>系统</h4>
+
+                <div class="fight-log-message" v-for='message in logItem.messageList'>{{message}}</div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/2.6.10/vue.min.js"></script>
+    <script>
+
+        // 获取随机伤害
+        function getRandomAttack(start,end){
+            return start + Math.round( Math.random() * (end-start) )
+        }
+
+        // 重复攻击
+        function repeatAttack(attackCallback,count=1){
+            for(var i=0;i<count;i++){
+                attackCallback()
+            }
+        }
+
+        // 概率攻击
+        function probabilityAttack(attackCallback,probability=0.3){
+            // Math.random()获得一个0-1的随机数 , 如果0.3大于这个随机数 , 说明中奖( 0.3大于这个随机数的概率是30% )
+            if(probability >= Math.random()){
+                attackCallback()
+            }
+        }
+
+        // 执行buff
+        function runBuff(role , runTime){
+
+            var nowBuffList = role.combatInfo.buffList.filter(buff=>buff.runTime == runTime)
+
+            // 处理buff返回的结果
+            var buffResult = {}
+
+            nowBuffList.forEach((buff)=>{
+                buff.count--
+
+                switch (buff.name) {
+                    case '沉默':
+                        buffResult['结束回合'] = true
+                        break
+                    case '点燃':
+                        role.combatInfo.life -= buff.value
+                        app.updateMessage('',`受到点燃伤害-${buff.value} ${role.name}生命${role.combatInfo.life}`)
+                        break;
+                    case '软弱':
+                        role.attackInfo.physics -= buff.value
+                        app.updateMessage('软弱攻击力-'+buff.value)
+                        break;
+                }
+            })
+
+            // 清除失效的buff
+            role.combatInfo.buffList = role.combatInfo.buffList.filter(buff=>buff.count>0)
+
+            return buffResult
+        }
+
+
+        class Buff{
+            // buff名称
+            name = ''
+            // buff的数值
+            value = ''
+            // buff持续次数
+            count = 0
+            // buff作用方(rival/self)
+            to = 'rival'
+            // buff触发的时机(start/end)
+            runTime = 'start'
+
+            constructor(options){
+                Object.assign(this,options)
+            }
+        }
+
+        class Log{
+            role = null
+            messageList = []
+
+            constructor(role){
+                this.role = role
+            }
+        }
+
+        class Role{
+            name = ''
+            // 生命值
+            life = 100
+            // 速度 , 梗快的速度梗先出手
+            speed = 0
+            // 攻击力
+            attack = 0
+            // 防御力
+            armor = 0
+            // 初始化被动技能
+            roleInit = null
+            // 被动技能
+            // passive = null
+            passive(){
+                this.attackInfo.physics += this.attack
+                // this.attackInfo.magic = 5
+            }
+            // 必杀技能
+            cubikill = null
+            // 必杀几率
+            cubikillProbability = 0
+            // 必杀次数
+            cubikillCount = 0
+
+            // 是否被选中参与战斗
+            isCheck = false
+            // 当前战斗中失败的次数
+            failureCount = 0
+            
+
+            // 出击时
+            onAttack(){
+
+                app.logs.push(new Log(this))
+
+                // 伤害信息
+                this.attackInfo = {
+                    // 物理攻击力
+                    physics : 0,
+                    // 元素攻击力
+                    magic : 0,
+                    // debugg效果
+                    debuff : null,
+                    // 修改伤害信息
+                    changeAttackInfo : null
+                }
+
+                // 每回合开始时的buff效果
+                var buffResult = runBuff(this , 'start')
+                if(buffResult['结束回合']){
+                    app.updateMessage('本回合直接结束!')
+                    return
+                }
+
+
+                // 触发被动
+                this.passive && this.passive()
+
+                // 概率大招
+                if(this.cubikillProbability){
+                    probabilityAttack(()=> this.cubikill() , this.cubikillProbability)
+                }
+                // 计次大招
+                if(this.cubikillCount){
+                    if(this.combatInfo.cubikillCountNow == this.cubikillCount){
+                        this.cubikill()
+                        this.combatInfo.cubikillCountNow = 0
+                    }
+                    else{
+                        this.combatInfo.cubikillCountNow ++
+                    }
+                }
+
+                // 出招
+                this.combatInfo.rival.onBeHit(this.attackInfo)
+
+                // 每回合结束时的buff效果
+                runBuff(this , 'end')
+            }
+
+            // 被击时
+            // 物理攻击力 , 魔法攻击力 , debuff效果
+            onBeHit({physics , magic , debuff}){
+
+                if(debuff){
+                    debuff()
+                }
+
+                if(physics){
+                    this.combatInfo.life -= physics - this.armor
+                    app.updateMessage('造成物伤-'+(physics - this.armor))
+                }
+                if(magic){
+                    this.combatInfo.life -= magic
+                    app.updateMessage('造成元素-'+magic)
+                }
+            }
+
+            init(rival){
+
+                // 战斗中的信息
+                this.combatInfo = {
+                    // 对手
+                    rival : rival,
+                    // 战斗中的生命值
+                    life : this.life,
+                    // buff列表
+                    buffList : [],
+                    // 必杀次数
+                    cubikillCountNow : 0
+                }
+
+                this.roleInit && this.roleInit()
+            }
+
+            constructor(name , speed, attack, armor, options){
+                Object.assign(this,{name , speed, attack, armor})
+                Object.assign(this,options)
+            }
+        }
+
+
+        var 牙医 = new Role('牙医',3,26,6,{
+            cubikillProbability : 0.3,
+            passive(){
+                this.attackInfo.physics += this.attack
+                this.attackInfo.magic = 5
+            },
+            cubikill(){
+                this.attackInfo.magic += 15
+                this.attackInfo.debuff = ()=>{
+                    // 静默一回合
+                    var buff = new Buff({ name : '沉默' , count : 1 })
+                    this.combatInfo.rival.combatInfo.buffList.push( buff )
+                }
+
+                app.updateMessage('释放必杀 , 元素伤害额外增加15 , 并且沉默对手一回合')
+            }
+        })
+
+
+        var 琪亚娜 = new Role('琪亚娜',2,23,11,{
+            cubikillCount : 3,
+            roleInit(){
+                this.combatInfo.life += 20
+            },
+            cubikill(){
+                this.attackInfo.physics = 0
+                repeatAttack(()=>{
+                    this.combatInfo.rival.onBeHit({ physics : 12 })
+                } , 8)
+
+                app.updateMessage('释放必杀 , 造成8次12点攻击力')
+            }
+        })
+
+
+        var 八重樱 = new Role('八重樱',4,28,8,{
+            cubikillProbability : 0.25,
+            passive(){
+
+                this.attackInfo.physics += this.attack
+
+                probabilityAttack(()=>{
+                    // 对手身上已有的点燃buff
+                    var rivaBuff = this.combatInfo.rival.combatInfo.buffList.find((buff)=>buff.name=='点燃')
+                    // 刷新持续时间
+                    if(rivaBuff){
+                        rivaBuff.count = 3
+                    }
+                    // 附加点燃
+                    else{
+                        var buff = new Buff({ name : '点燃' , value:5 , count : 3 })
+                        this.combatInfo.rival.combatInfo.buffList.push( buff )
+                    }
+
+                    app.updateMessage(`触发点燃`)
+                } , 0.2)
+            },
+            cubikill(){
+                var damage = this.attackInfo.physics - this.combatInfo.rival.armor
+                this.combatInfo.rival.combatInfo.life -= damage*2
+                this.attackInfo.physics = 0
+
+                app.updateMessage(`释放必杀 , 造成双倍伤害 ${damage*2}`)
+            }
+        })
+
+
+
+        var 卡莲 = new Role('卡莲',5,26,6,{
+            cubikillProbability : 0.3,
+            passive(){
+
+                this.attackInfo.physics += this.attack
+
+                probabilityAttack(()=>{
+                    this.combatInfo.rival.combatInfo.life = 0
+                    app.updateMessage(`触发废人技能`)
+                } , 0.05)
+            },
+            cubikill(){
+                // 对手身上已有的点燃buff
+                var rivaBuff = this.combatInfo.rival.combatInfo.buffList.find((buff)=>buff.name=='点燃')
+                // 刷新持续时间
+                if(rivaBuff){
+                    rivaBuff.count = 3
+                }
+                // 附加点燃
+                else{
+                    var buff = new Buff({ name : '软弱' , value:15 , count : 2 })
+                    this.combatInfo.rival.combatInfo.buffList.push( buff )
+                }
+
+                app.updateMessage(`触发降低攻击力`)
+            }
+        })
+
+
+
+
+        var 丽塔 = new Role('丽塔',3,26,8,{
+            cubikillProbability : 0.2,
+            passive(){
+                this.attackInfo.physics += this.attack
+                
+                probabilityAttack(()=>{
+                    var damage = this.attackInfo.physics - this.combatInfo.rival.armor
+                    this.combatInfo.life+=damage
+                    app.updateMessage(``,`触发回血+${damage} ${this.name}生命${this.combatInfo.life}`)
+                } , 0.3)
+            },
+            cubikill(){
+
+                this.attackInfo.debuff = ()=>{
+                    // 静默一回合
+                    var buff = new Buff({ name : '沉默' , count : 1 })
+                    this.combatInfo.rival.combatInfo.buffList.push( buff )
+                }
+
+                app.updateMessage('释放必杀 , 沉默对手一回合')
+            }
+        })
+
+
+
+
+
+        var app=new Vue({
+            el : '#app',
+            data : {
+                roles : [
+                    牙医,
+                    琪亚娜,
+                    八重樱,
+                    卡莲,
+                    丽塔
+                ],
+
+                roleA : null,
+                roleB : null,
+
+                // 单次pk , 会显示日志
+                once : true,
+                // 日志
+                logs : [],
+            },
+            methods : {
+                checkRole(role){
+                    if(this.roleA && this.roleB){
+                        return
+                    }
+
+                    if(!this.roleA){
+                        this.roleA = role
+                    }
+                    else{
+                        this.roleB = role
+                    }
+
+                    // role.isCheck = true
+                },
+                updateMessage(msg,msg2){
+                    if(!this.once){
+                        return
+                    }
+
+
+                    var lastLogItem = this.logs[this.logs.length-1]
+
+                    if(msg2){
+                        lastLogItem.messageList.push(msg2)
+                        return
+                    }
+
+                    if(lastLogItem.role){
+                        var rival = lastLogItem.role.combatInfo.rival
+                        msg = `${msg} ${rival.name}生命${rival.combatInfo.life}`
+                    }
+                    lastLogItem.messageList.push(msg)
+                },
+                startSelect(){
+                    this.roleA=null
+                    this.roleB=null
+                    this.logs=[]
+                },
+                startPK(flow , count){
+                    
+                    this.roleA.init(this.roleB)
+                    this.roleB.init(this.roleA)
+
+                    this.logs = []
+
+                    if(app.once){
+                        app.logs.push(new Log())
+                    }
+
+                    this.updateMessage(flow[0].name + '先手 , ' + flow[1].name + '后手')
+
+                    for(var i=0;i<100;i++){
+                        flow[i%2].onAttack()
+
+                        // 如果有一方生命为0
+                        var dieRole = flow.find( role=>role.combatInfo.life<=0 )
+                        if(dieRole){
+
+                            if(app.once){
+                                app.logs.push(new Log())
+                                this.updateMessage(dieRole.name + ' : 是在下输了!')
+                                alert(dieRole.name + ' : 是在下输了!')
+                            }
+                            else{
+                                dieRole.failureCount++
+                            }
+                            return
+                        }
+                    }
+                },
+                gameStart(count=1){
+
+                    if(count==1){
+                        this.once = true
+                    }
+                    else{
+                        this.once = false
+                    }
+
+                    var flow=[]
+                    if(this.roleA.speed >= this.roleB.speed){
+                        flow=[this.roleA , this.roleB]
+                    }
+                    else{
+                        flow=[this.roleB , this.roleA]
+                    }
+
+                    this.roleA.failureCount=0
+                    this.roleB.failureCount=0
+
+                    this.logs = []
+
+                    for(var gameCount=0;gameCount<count;gameCount++){
+                        this.startPK(flow , count)
+                    }
+
+                    if(!this.once){
+                        var roleAWin = count - this.roleA.failureCount
+                        var roleBWin = count - this.roleB.failureCount
+                        alert(`在${count}次的比赛中\n${this.roleA.name}胜利了${roleAWin}次(${roleAWin/count*100}%)\n${this.roleB.name}胜利了${roleBWin}次(${roleBWin/count*100}%)`)
+                    }
+                }
+            }
+        })
+
+    </script>
+</body>
+</html>
