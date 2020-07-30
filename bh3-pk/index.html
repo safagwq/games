@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -10,15 +10,23 @@
         *{margin:0;  padding:0;  box-sizing:border-box;  }
         #app{padding:10px;  }
 
+        h1{margin:20px 0;  }
+
         .roles{display:flex;  margin:-5px;  overflow:auto;  }
-        .roles-item{border:1px solid #ccc;  padding:10px;  margin:5px;  flex-shrink:0;  }
+        .roles-item{border:1px solid #ccc;  padding:5px;  margin:5px;  flex-shrink:0;  }
         .roles-item.check{border-color:#f00;  }
+        .roles h2{font-size:20px;  }
+        .roles div{font-size:14px;  }
+        .roles img{width:72px;  height:84px;  display:block;  }
 
         .button{width:100px;  height:50px;  margin-top:10px;  border:1px solid #ccc;  }
 
         .fight-log{padding:10px;  margin:10px 0;  border:1px solid #ccc;  text-align:center;  }
         .fight-log.roleA{margin-right:15%;  text-align:left;  }
         .fight-log.roleB{margin-left:15%;  text-align:right;  }
+        .fight-log img{width:48px;  height:56px;  }
+        .fight-log.roleA img{float:left;  margin-right:10px;  }
+        .fight-log.roleB img{float:right;  margin-left:10px;  }
         .fight-log-message{font-size:12px;  }
     </style>
 </head>
@@ -29,11 +37,12 @@
         <h1>请选择两个角色</h1>
         <div class="roles">
             <div :class="['roles-item', {check : role==roleA || role==roleB} ]" v-for='role in roles' @click='checkRole(role)'>
+                <img :src="role.photo">
                 <h2>{{role.name}}</h2>
-                <div>生命值 : {{role.life}}</div>
+                <div>生命 : {{role.life}}</div>
                 <div>速度 : {{role.speed}}</div>
-                <div>攻击力 : {{role.attack}}</div>
-                <div>防御力 : {{role.armor}}</div>
+                <div>攻击 : {{role.attack}}</div>
+                <div>防御 : {{role.armor}}</div>
             </div>
         </div>
 
@@ -43,6 +52,7 @@
 
         <div class="fight-logs" v-if='once'>
             <div v-for='logItem in logs' :class="['fight-log' , {roleA : logItem.role==roleA} , {roleB : logItem.role==roleB}  ]">
+                <img v-if='logItem.role' :src="logItem.role.photo">
                 <h4 v-if='logItem.role'>{{logItem.role.name}}出招 : </h4>
                 <h4 v-else>系统</h4>
 
@@ -108,7 +118,6 @@
 
 
         class Buff{
-            
 
             constructor(options){
                 // buff名称
@@ -251,6 +260,9 @@
                 // 必杀次数
                 this.cubikillCount = 0
 
+                // 头像
+                this.photo = options.photo
+
                 // 当前战斗中失败的次数
                 this.failureCount = 0
                 
@@ -261,7 +273,26 @@
         }
 
 
-        var 牙医 = new Role('牙医',3,26,6,{
+
+        var 琪亚娜 = new Role('琪亚娜',23,24,11,{
+            photo : './images/IMG_0201.jpg',
+            cubikillCount : 2,
+            roleInit(){
+                this.combatInfo.life += 20
+            },
+            cubikill(){
+                this.attackInfo.physics = 0
+                repeatAttack(()=>{
+                    this.combatInfo.rival.onBeHit({ physics : 12 })
+                } , 8)
+
+                app.updateMessage('释放必杀 , 造成8次12点攻击力')
+            }
+        })
+
+
+        var 牙医 = new Role('牙医',30,22,12,{
+            photo : './images/IMG_0202.jpg',
             cubikillProbability : 0.3,
             passive(){
                 this.attackInfo.physics += this.attack
@@ -279,88 +310,19 @@
             }
         })
 
+        var 布洛妮娅 = new Role('布洛妮娅',20,21,10,{
+            photo : './images/IMG_0203.jpg',
+            cubikillProbability : 0.3
+        })
 
-        var 琪亚娜 = new Role('琪亚娜',2,23,11,{
-            cubikillCount : 3,
-            roleInit(){
-                this.combatInfo.life += 20
-            },
-            cubikill(){
-                this.attackInfo.physics = 0
-                repeatAttack(()=>{
-                    this.combatInfo.rival.onBeHit({ physics : 12 })
-                } , 8)
-
-                app.updateMessage('释放必杀 , 造成8次12点攻击力')
-            }
+        var 姬子 = new Role('姬子',12,23,9,{
+            photo : './images/IMG_0204.jpg',
+            cubikillProbability : 0.3
         })
 
 
-        var 八重樱 = new Role('八重樱',4,28,8,{
-            cubikillProbability : 0.25,
-            passive(){
-
-                this.attackInfo.physics += this.attack
-
-                probabilityAttack(()=>{
-                    // 对手身上已有的点燃buff
-                    var rivaBuff = this.combatInfo.rival.combatInfo.buffList.find((buff)=>buff.name=='点燃')
-                    // 刷新持续时间
-                    if(rivaBuff){
-                        rivaBuff.count = 3
-                    }
-                    // 附加点燃
-                    else{
-                        var buff = new Buff({ name : '点燃' , value:5 , count : 3 })
-                        this.combatInfo.rival.combatInfo.buffList.push( buff )
-                    }
-
-                    app.updateMessage(`触发点燃`)
-                } , 0.2)
-            },
-            cubikill(){
-                var damage = this.attackInfo.physics - this.combatInfo.rival.armor
-                this.combatInfo.rival.combatInfo.life -= damage*2
-                this.attackInfo.physics = 0
-
-                app.updateMessage(`释放必杀 , 造成双倍伤害 ${damage*2}`)
-            }
-        })
-
-
-
-        var 卡莲 = new Role('卡莲',5,26,6,{
-            cubikillProbability : 0.3,
-            passive(){
-
-                this.attackInfo.physics += this.attack
-
-                probabilityAttack(()=>{
-                    this.combatInfo.rival.combatInfo.life = 0
-                    app.updateMessage(`触发废人技能`)
-                } , 0.05)
-            },
-            cubikill(){
-                // 对手身上已有的点燃buff
-                var rivaBuff = this.combatInfo.rival.combatInfo.buffList.find((buff)=>buff.name=='点燃')
-                // 刷新持续时间
-                if(rivaBuff){
-                    rivaBuff.count = 3
-                }
-                // 附加点燃
-                else{
-                    var buff = new Buff({ name : '软弱' , value:15 , count : 2 })
-                    this.combatInfo.rival.combatInfo.buffList.push( buff )
-                }
-
-                app.updateMessage(`触发降低攻击力`)
-            }
-        })
-
-
-
-
-        var 丽塔 = new Role('丽塔',3,26,8,{
+        var 丽塔 = new Role('丽塔',17,26,11,{
+            photo : './images/IMG_0205.jpg',
             cubikillProbability : 0.2,
             passive(){
                 this.attackInfo.physics += this.attack
@@ -383,6 +345,40 @@
             }
         })
 
+        var 卡莲八重樱 = new Role('卡莲八重樱',18,20,9,{
+            photo : './images/IMG_0206.jpg',
+            cubikillProbability : 0.3
+        })
+
+        var 渡鸦 = new Role('渡鸦',14,23,14,{
+            photo : './images/IMG_0207.jpg',
+            cubikillProbability : 0.3
+        })
+
+        var 德莉傻 = new Role('德莉傻',22,19,12,{
+            photo : './images/IMG_0208.jpg',
+            cubikillProbability : 0.3
+        })
+
+        var 双子 = new Role('双子',10,18,10,{
+            photo : './images/IMG_0209.jpg',
+            cubikillProbability : 0.3
+        })
+
+        var 希儿 = new Role('希儿',26,23,10,{
+            photo : './images/IMG_0210.jpg',
+            cubikillProbability : 0.3
+        })
+
+        var 幽兰戴尔 = new Role('幽兰戴尔',15,19,10,{
+            photo : './images/IMG_0211.jpg',
+            cubikillProbability : 0.3
+        })
+
+        var 浮华 = new Role('浮华',16,17,15,{
+            photo : './images/IMG_0212.jpg',
+            cubikillProbability : 0.3
+        })
 
 
 
@@ -391,11 +387,18 @@
             el : '#app',
             data : {
                 roles : [
-                    牙医,
                     琪亚娜,
-                    八重樱,
-                    卡莲,
-                    丽塔
+                    牙医,
+                    布洛妮娅,
+                    姬子,
+                    丽塔,
+                    卡莲八重樱,
+                    渡鸦,
+                    德莉傻,
+                    双子,
+                    希儿,
+                    幽兰戴尔,
+                    浮华,
                 ],
 
                 roleA : null,
